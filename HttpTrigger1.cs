@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace grhaWebFunctions;
 
+// test
 public class HttpTrigger1
 {
     private readonly ILogger<HttpTrigger1> _logger;
