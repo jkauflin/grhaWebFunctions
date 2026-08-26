@@ -41,6 +41,8 @@ Modification History
                 The client application must request an access token for the 
                 API Function and include it in the Authorization header of the 
                 request (not SWA Easy Auth, but a real access token from Azure Entra ID).
+2026-08-26 JJK  Modified the SendDuesNoticeEmails to re-add a check for TEST
+                email sent for a particular Parcel Id
 ================================================================================*/
 using System.Net;
 using Microsoft.Azure.Functions.Worker;
@@ -628,7 +630,16 @@ namespace grhaWebFunctions
                     return await util.CreateErrorResponse(req, HttpStatusCode.Unauthorized, "Unauthorized call - User does not have the correct Admin role");
                 }
 
-                int cnt = await hoaDbCommon.SendDuesNoticeEmailsDB(userName);
+                string content = await new StreamReader(req.Body).ReadToEndAsync();
+                JObject jObject = JObject.Parse(content);
+                string testParcelId = "";
+                JToken? jToken;
+                if (jObject.TryGetValue("testParcelId", out jToken))
+                {
+                    testParcelId = jToken.ToString().Trim();
+                }
+
+                int cnt = await hoaDbCommon.SendDuesNoticeEmailsDB(userName, testParcelId);
                 returnMessage = $"Dues Notice Emails queued for send, count = {cnt}";
             }
             catch (Exception ex)

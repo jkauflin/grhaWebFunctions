@@ -38,6 +38,8 @@ Modification History
 2025-09-22 JJK  Added SendPaymentEmail function
 2025-09-30 JJK  Fixed some bugs and modified to return the email Id from ACS
                 *** Turned on sending to actual email address (commented out test) ***
+2026-08-26 JJK  Modified the SendDuesNoticeEmailsDB to re-add a check for TEST
+                email sent for a particular Parcel Id
 ================================================================================*/
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
@@ -1026,7 +1028,7 @@ public class HoaDbCommon
         return returnCnt;
     }
 
-    public async Task<int> SendDuesNoticeEmailsDB(string userName)
+    public async Task<int> SendDuesNoticeEmailsDB(string userName, string testParcelId="")
     {
         int returnCnt = 0;
 
@@ -1052,6 +1054,14 @@ public class HoaDbCommon
         duesEmailEvent.helpNotes = await getConfigVal(configContainer, "duesNotes");
         duesEmailEvent.duesUrl = await getConfigVal(configContainer, "duesUrl");
 
+        // if TEST match the test Parcel ID
+        bool testDuesEmail = false;
+        string duesEmailTestAddress = "";
+        if (!string.IsNullOrEmpty(testParcelId))
+        {
+            testDuesEmail = true;
+            duesEmailTestAddress = await getConfigVal(configContainer, "duesEmailTestAddress");
+        }
 
         QueryDefinition queryDefinition = new QueryDefinition(
             "SELECT * FROM c WHERE c.Email = 1 AND c.SentStatus = 'N' ");
@@ -1066,6 +1076,13 @@ public class HoaDbCommon
                 duesEmailEvent.id = hoa_comm.id;
                 duesEmailEvent.parcelId = hoa_comm.Parcel_ID;
                 duesEmailEvent.emailAddr = hoa_comm.EmailAddr;
+
+                if (testDuesEmail) {
+                    if (!hoa_comm.Parcel_ID.Equals(testParcelId)) {
+                        continue;
+                    }
+                    duesEmailEvent.emailAddr = duesEmailTestAddress;
+                }
 
                 // Queue up an event to create and send the dues notice for this email address
                 await eventGridPublisherClient.SendEventAsync(
