@@ -628,8 +628,6 @@ namespace grhaWebFunctions
                     return await util.CreateErrorResponse(req, HttpStatusCode.Unauthorized, "Unauthorized call - User does not have the correct Admin role");
                 }
 
-                //log.LogInformation(">>> User is authorized ");
-
                 int cnt = await hoaDbCommon.SendDuesNoticeEmailsDB(userName);
                 returnMessage = $"Dues Notice Emails queued for send, count = {cnt}";
             }
