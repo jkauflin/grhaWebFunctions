@@ -45,7 +45,7 @@ public class SendEmail
             string returnMessage = "";
             // De-serialize the JSON string from the Event into the DuesEmailEvent object
             duesEmailEvent = eventGridEvent.Data.ToObjectFromJson<DuesEmailEvent>();
-            log.LogInformation($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
+            log.LogWarning($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
 
             bool paymentEmail = false;
             if (!string.IsNullOrEmpty(duesEmailEvent.mailType))
@@ -65,7 +65,7 @@ public class SendEmail
                 //returnMessage = await hoaDbCommon.SendEmailandUpdateRecs(duesEmailEvent);
             }
 
-            log.LogInformation(returnMessage+", email = "+duesEmailEvent.emailAddr);
+            log.LogWarning(returnMessage+", email = "+duesEmailEvent.emailAddr);
         }
         catch (Exception ex)
         {
