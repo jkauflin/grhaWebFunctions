@@ -123,7 +123,7 @@ public class HoaDbCommon
             htmlMessageStr += $"<b>Email2: </b>{hoaRec.ownersList[0].EmailAddr2}<br>";
 
             htmlMessageStr += $"<h3><a href='{duesEmailEvent.duesUrl}'>Click here to view Dues Statement or PAY online</a></h3>";
-            htmlMessageStr += $"*** Online payment is for properties with ONLY current dues outstanding - if there are outstanding past dues or fees on the account, contact Treasurer for online payment options *** <br>";
+            //htmlMessageStr += $"*** Online payment is for properties with ONLY current dues outstanding - if there are outstanding past dues or fees on the account, contact Treasurer for online payment options *** <br>";
 
             htmlMessageStr += $"Send payment checks to:<br>";
             htmlMessageStr += $"<b>{duesEmailEvent.hoaNameShort}</b><br>";
@@ -133,7 +133,6 @@ public class HoaDbCommon
             if (!String.IsNullOrEmpty(duesEmailEvent.helpNotes)) {
                 htmlMessageStr += $"<br>{duesEmailEvent.helpNotes}<br>";
             }
-
 
             // Create the EmailClient
             var emailClient = new EmailClient(acsEmailConnStr);
@@ -168,10 +167,7 @@ public class HoaDbCommon
             EmailSendResult result = operation.Value;
             if (result.Status != EmailSendStatus.Succeeded)
             {
-                log.LogError("---------- DUES EMAIL SEND FAILED ------------");
-                log.LogError($">>> {duesEmailEvent.parcelId}, id: {duesEmailEvent.id}, email: {duesEmailEvent.emailAddr}");
-                log.LogError($"Email send status: {result.Status.ToString()}");
-                throw new Exception("Dues email send failed");
+                throw new Exception("Dues email send failed - send status: {result.Status.ToString()}");
             }
 
             //----------------------------------------------------------------------------------------------------------------
@@ -194,8 +190,8 @@ public class HoaDbCommon
                 patchArray
             );
 
-            returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {operation.Id}";
-            return returnMessage;
+        returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {operation.Id}";
+        return returnMessage;
     }
 
     public async Task<string> SendPaymentEmail(DuesEmailEvent duesEmailEvent)

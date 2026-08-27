@@ -7,6 +7,7 @@ DESCRIPTION:  Azure Function for sending emails using ACS - triggered by
 Modification History
 ----------------------------------------------------------------------------------
 2026-08-26 JJK  Migrating send email function to this new .net10 project
+2026-08-27 JJK  Update logging for better information using ilogger parameters
 ================================================================================*/
 
 using Azure.Messaging;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.Configuration;
 
 using grhaWebFunctions.Model;
 using System.Threading.Tasks;
+using Azure;
 
 namespace grhaWebFunctions;
 
@@ -38,15 +40,32 @@ public class SendEmail
     [Function("SendEmailTrigger2")]
     public async Task Run([EventGridTrigger] EventGridEvent eventGridEvent)
     {
+        string returnMessage = "";
+        string functionName = "SendEmailTrigger2";
         DuesEmailEvent duesEmailEvent = new DuesEmailEvent();
         try
         {
-            log.LogInformation("Begin SendEmailTrigger2 function");
-            string returnMessage = "";
+            log.LogInformation("Begin {functionName} function",functionName);
+            /*
+            log.LogInformation(
+                "Starting {Operation} for {EntityId}. User: {UserId}",
+                "SendEmail",
+                hoaMemberId,
+                userId);
+            And later:
+            log.LogInformation(
+                "Completed {Operation} for {EntityId}. Status: {Status}, DurationMs: {DurationMs}",
+                "SendEmail",
+                hoaMemberId,
+                "Success",
+                stopwatch.ElapsedMilliseconds);
+            The big advantage is that you can query Application Insights for things like:
+            Operation == "SendEmail"
+            */
+
             // De-serialize the JSON string from the Event into the DuesEmailEvent object
             duesEmailEvent = eventGridEvent.Data.ToObjectFromJson<DuesEmailEvent>();
-            log.LogWarning($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
-            log.LogInformation($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
+            log.LogInformation(">>> duesEmailEvent = {duesEmailEvent}",duesEmailEvent);
 
             bool paymentEmail = false;
             if (!string.IsNullOrEmpty(duesEmailEvent.mailType))
@@ -59,20 +78,24 @@ public class SendEmail
 
             if (paymentEmail)
             {
-                //returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
+                returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
             }
             else
             {
                 //returnMessage = await hoaDbCommon.SendEmailandUpdateRecs(duesEmailEvent);
             }
 
-            log.LogWarning(returnMessage+", email = "+duesEmailEvent.emailAddr);
+            log.LogInformation("returnMessage = {returnMessage}", returnMessage);
         }
         catch (Exception ex)
         {
-            log.LogError("---------- DUES EMAIL FAILED ------------");
-            log.LogError($">>> {eventGridEvent.EventType}, parcelId: {duesEmailEvent.parcelId}, id: {duesEmailEvent.id}, email: {duesEmailEvent.emailAddr}, type: {duesEmailEvent.mailType}");
-            log.LogError($"Exception, message: {ex.Message} {ex.StackTrace}");
+            log.LogError(ex,"Error in {functionName} sending email to {emailAddress} for {eventType}, parcelId: {parcelId}, eventId: {eventId}, type: {mailType}",
+                functionName,
+                duesEmailEvent.emailAddr,
+                eventGridEvent.EventType,
+                duesEmailEvent.parcelId,
+                duesEmailEvent.id,
+                duesEmailEvent.mailType);
             throw new Exception(ex.Message);
         }
 
