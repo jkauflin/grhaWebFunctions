@@ -78,11 +78,11 @@ public class SendEmail
 
             if (paymentEmail)
             {
-                returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
+                //returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
             }
             else
             {
-                //returnMessage = await hoaDbCommon.SendEmailandUpdateRecs(duesEmailEvent);
+                returnMessage = await hoaDbCommon.SendEmailandUpdateRecs(duesEmailEvent);
             }
 
             log.LogInformation("returnMessage = {returnMessage}", returnMessage);
