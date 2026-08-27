@@ -46,6 +46,7 @@ public class SendEmail
             // De-serialize the JSON string from the Event into the DuesEmailEvent object
             duesEmailEvent = eventGridEvent.Data.ToObjectFromJson<DuesEmailEvent>();
             log.LogWarning($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
+            log.LogInformation($">>> duesEmailEvent = {duesEmailEvent.ToString()}");
 
             bool paymentEmail = false;
             if (!string.IsNullOrEmpty(duesEmailEvent.mailType))
