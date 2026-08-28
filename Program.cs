@@ -13,10 +13,7 @@ using PaypalServerSdk.Standard.Authentication;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
-//services.AddApplicationInsightsTelemetryWorkerService();
-//services.ConfigureFunctionsApplicationInsights();
-
-builder.ConfigureFunctionsWebApplication();   // <-- missing in yours
+builder.ConfigureFunctionsWebApplication();
 
 if (!string.IsNullOrEmpty(
     builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))

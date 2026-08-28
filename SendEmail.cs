@@ -46,22 +46,6 @@ public class SendEmail
         try
         {
             log.LogInformation("Begin {functionName} function",functionName);
-            /*
-            log.LogInformation(
-                "Starting {Operation} for {EntityId}. User: {UserId}",
-                "SendEmail",
-                hoaMemberId,
-                userId);
-            And later:
-            log.LogInformation(
-                "Completed {Operation} for {EntityId}. Status: {Status}, DurationMs: {DurationMs}",
-                "SendEmail",
-                hoaMemberId,
-                "Success",
-                stopwatch.ElapsedMilliseconds);
-            The big advantage is that you can query Application Insights for things like:
-            Operation == "SendEmail"
-            */
 
             // De-serialize the JSON string from the Event into the DuesEmailEvent object
             duesEmailEvent = eventGridEvent.Data.ToObjectFromJson<DuesEmailEvent>();
@@ -78,7 +62,7 @@ public class SendEmail
 
             if (paymentEmail)
             {
-                //returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
+                returnMessage = await hoaDbCommon.SendPaymentEmail(duesEmailEvent);
             }
             else
             {

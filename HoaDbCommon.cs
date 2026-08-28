@@ -87,187 +87,6 @@ public class HoaDbCommon
     }
 
 
-    public async Task<string> SendEmailandUpdateRecs(DuesEmailEvent duesEmailEvent)
-    {
-            string returnMessage = "";
-
-            string containerId = "hoa_communications";
-            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-            Database db = cosmosClient.GetDatabase(databaseId);
-            Container container = db.GetContainer(containerId);
-            DateTime currDateTime = DateTime.Now;
-            string LastChangedTs = currDateTime.ToString("o");
-
-            var hoaRec = await GetHoaRecDB(duesEmailEvent.parcelId);
-
-            string subject = $"{duesEmailEvent.hoaNameShort} Dues Notice";
-            string htmlMessageStr = "";
-            string title = duesEmailEvent.hoaNameShort + " Member Dues Notice";    // TEST?
-            string noticeYear = (hoaRec.assessmentsList[0].FY - 1).ToString();
-
-            htmlMessageStr = $"<b>{duesEmailEvent.hoaName}</b><br>";
-            htmlMessageStr += $"{title} for Fiscal Year <b>{hoaRec.assessmentsList[0].FY.ToString()}</b><br>";
-            htmlMessageStr += $"<b>For the Period:</b> Oct 1, {noticeYear} thru Sept 30, {hoaRec.assessmentsList[0].FY.ToString()}<br><br>";
-            if (hoaRec.assessmentsList[0].Paid != 1) {
-                htmlMessageStr += $"<b>Current Dues Amount: </b>{hoaRec.assessmentsList[0].DuesAmt}<br>";
-            }
-            htmlMessageStr += $"<b>*****Total Outstanding:</b> ${hoaRec.totalDue} (Includes fees, current & past dues)<br>";
-            htmlMessageStr += $"<b>Due Date: </b>October 1, {noticeYear}<br>";
-            htmlMessageStr += $"<b>Dues must be paid to avoid a lien and lien fees </b><br><br>";
-
-            htmlMessageStr += $"<b>Parcel Id: </b>{duesEmailEvent.parcelId}<br>";
-            htmlMessageStr += $"<b>Owner: </b>{hoaRec.property.Mailing_Name}<br>";
-            htmlMessageStr += $"<b>Location: </b>{hoaRec.property.Parcel_Location}<br>";
-            htmlMessageStr += $"<b>Phone: </b>{hoaRec.ownersList[0].Owner_Phone}<br>";
-            htmlMessageStr += $"<b>Email: </b>{hoaRec.ownersList[0].EmailAddr}<br>";
-            htmlMessageStr += $"<b>Email2: </b>{hoaRec.ownersList[0].EmailAddr2}<br>";
-
-            htmlMessageStr += $"<h3><a href='{duesEmailEvent.duesUrl}'>Click here to view Dues Statement or PAY online</a></h3>";
-            //htmlMessageStr += $"*** Online payment is for properties with ONLY current dues outstanding - if there are outstanding past dues or fees on the account, contact Treasurer for online payment options *** <br>";
-
-            htmlMessageStr += $"Send payment checks to:<br>";
-            htmlMessageStr += $"<b>{duesEmailEvent.hoaNameShort}</b><br>";
-            htmlMessageStr += $"<b>{duesEmailEvent.hoaAddress1}</b><br>";
-            htmlMessageStr += $"<b>{duesEmailEvent.hoaAddress2}</b><br>";
-
-            if (!String.IsNullOrEmpty(duesEmailEvent.helpNotes)) {
-                htmlMessageStr += $"<br>{duesEmailEvent.helpNotes}<br>";
-            }
-
-            // Create the EmailClient
-            var emailClient = new EmailClient(acsEmailConnStr);
-
-            // Build the email content
-            var emailContent = new EmailContent(title)
-            {
-                Html = htmlMessageStr
-            };
-
-            var emailRecipients = new EmailRecipients(
-                to: new List<EmailAddress>
-                {
-                    new EmailAddress(duesEmailEvent.emailAddr)
-                }
-            );
-
-            // Create the message
-            var emailMessage = new EmailMessage(
-                senderAddress: acsEmailSenderAddress, // must be from a verified domain in ACS
-                content: emailContent,
-                recipients: emailRecipients
-            );
-
-            // Send the email and wait until the operation completes
-            EmailSendOperation operation = await emailClient.SendAsync(
-                WaitUntil.Completed,
-                emailMessage
-            );
-
-            // Check the result
-            EmailSendResult result = operation.Value;
-            if (result.Status != EmailSendStatus.Succeeded)
-            {
-                throw new Exception("Dues email send failed - send status: {result.Status.ToString()}");
-            }
-
-            //----------------------------------------------------------------------------------------------------------------
-            // Update the status of the Communications record indicating that the email has been SENT
-            //----------------------------------------------------------------------------------------------------------------
-            // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
-            List<PatchOperation> patchOperations = new List<PatchOperation>
-            {
-                PatchOperation.Replace("/SentStatus", "Y"),
-                PatchOperation.Replace("/LastChangedBy", "SendMail"),
-                PatchOperation.Replace("/LastChangedTs", LastChangedTs)
-            };
-
-            // Convert the list to an array
-            PatchOperation[] patchArray = patchOperations.ToArray();
-
-            ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
-                duesEmailEvent.id,
-                new PartitionKey(duesEmailEvent.parcelId),
-                patchArray
-            );
-
-        returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {operation.Id}";
-        return returnMessage;
-    }
-
-    public async Task<string> SendPaymentEmail(DuesEmailEvent duesEmailEvent)
-    {
-            string returnMessage = "";
-
-            string containerId = "hoa_payments";
-            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-            Database db = cosmosClient.GetDatabase(databaseId);
-            Container container = db.GetContainer(containerId);
-            DateTime currDateTime = DateTime.UtcNow;
-            string LastChangedTs = currDateTime.ToString("o");
-
-            // Create the EmailClient
-            var emailClient = new EmailClient(acsEmailConnStr);
-
-            // Build the email content
-            var emailContent = new EmailContent(duesEmailEvent.mailSubject)
-            {
-                Html = duesEmailEvent.htmlMessage
-            };
-
-            var emailRecipients = new EmailRecipients(
-                to: new List<EmailAddress>
-                {
-                    new EmailAddress(duesEmailEvent.emailAddr)
-                }
-            );
-
-            // Create the message
-            var emailMessage = new EmailMessage(
-                senderAddress: acsEmailSenderAddress, // must be from a verified domain in ACS
-                content: emailContent,
-                recipients: emailRecipients
-            );
-
-            // Send the email and wait until the operation completes
-            EmailSendOperation operation = await emailClient.SendAsync(
-                WaitUntil.Completed,
-                emailMessage
-            );
-
-            // Check the result
-            EmailSendResult result = operation.Value;
-            //log.LogWarning($"Email send status: {result.Status.ToString()}, Succeeded = {EmailSendStatus.Succeeded.ToString()}, Id: {operation.Id}");
-            if (result.Status != EmailSendStatus.Succeeded)
-            {
-                log.LogError("---------- PAYMENT EMAIL SEND FAILED ------------");
-                log.LogError($">>> {duesEmailEvent.parcelId}, id: {duesEmailEvent.id}, email: {duesEmailEvent.emailAddr}");
-                log.LogError($"Email send status: {result.Status.ToString()}");
-                throw new Exception("Payment email send failed");
-            }
-
-            //----------------------------------------------------------------------------------------------------------------
-            // Update the status of the Payment record indicating that the email has been SENT
-            //----------------------------------------------------------------------------------------------------------------
-            // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
-            List<PatchOperation> patchOperations = new List<PatchOperation>
-            {
-                PatchOperation.Replace("/paidEmailSent", "Y"),
-                PatchOperation.Replace("/LastChangedTs", LastChangedTs)
-            };
-
-            // Convert the list to an array
-            PatchOperation[] patchArray = patchOperations.ToArray();
-
-            ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
-                duesEmailEvent.id,
-                new PartitionKey(duesEmailEvent.parcelId),
-                patchArray
-            );
-
-            returnMessage = $"Successfully sent email and updated payments rec, Parcel_ID: {duesEmailEvent.parcelId}, email Id: {operation.Id}";
-            return returnMessage;
-    }
-
 
     // Common internal function to lookup configuration values
     private async Task<string> getConfigVal(Container container, string configName)
@@ -1093,6 +912,186 @@ public class HoaDbCommon
         }
 
         return returnCnt;
+    }
+
+    public async Task<string> SendEmailandUpdateRecs(DuesEmailEvent duesEmailEvent)
+    {
+            string returnMessage = "";
+
+            string containerId = "hoa_communications";
+            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
+            Database db = cosmosClient.GetDatabase(databaseId);
+            Container container = db.GetContainer(containerId);
+            DateTime currDateTime = DateTime.Now;
+            string LastChangedTs = currDateTime.ToString("o");
+
+            var hoaRec = await GetHoaRecDB(duesEmailEvent.parcelId);
+
+            string subject = $"{duesEmailEvent.hoaNameShort} Dues Notice";
+            string htmlMessageStr = "";
+            string title = duesEmailEvent.hoaNameShort + " Member Dues Notice";    // TEST?
+            string noticeYear = (hoaRec.assessmentsList[0].FY - 1).ToString();
+
+            htmlMessageStr = $"<b>{duesEmailEvent.hoaName}</b><br>";
+            htmlMessageStr += $"{title} for Fiscal Year <b>{hoaRec.assessmentsList[0].FY.ToString()}</b><br>";
+            htmlMessageStr += $"<b>For the Period:</b> Oct 1, {noticeYear} thru Sept 30, {hoaRec.assessmentsList[0].FY.ToString()}<br><br>";
+            if (hoaRec.assessmentsList[0].Paid != 1) {
+                htmlMessageStr += $"<b>Current Dues Amount: </b>{hoaRec.assessmentsList[0].DuesAmt}<br>";
+            }
+            htmlMessageStr += $"<b>*****Total Outstanding:</b> ${hoaRec.totalDue} (Includes fees, current & past dues)<br>";
+            htmlMessageStr += $"<b>Due Date: </b>October 1, {noticeYear}<br>";
+            htmlMessageStr += $"<b>Dues must be paid to avoid a lien and lien fees </b><br><br>";
+
+            htmlMessageStr += $"<b>Parcel Id: </b>{duesEmailEvent.parcelId}<br>";
+            htmlMessageStr += $"<b>Owner: </b>{hoaRec.property.Mailing_Name}<br>";
+            htmlMessageStr += $"<b>Location: </b>{hoaRec.property.Parcel_Location}<br>";
+            htmlMessageStr += $"<b>Phone: </b>{hoaRec.ownersList[0].Owner_Phone}<br>";
+            htmlMessageStr += $"<b>Email: </b>{hoaRec.ownersList[0].EmailAddr}<br>";
+            htmlMessageStr += $"<b>Email2: </b>{hoaRec.ownersList[0].EmailAddr2}<br>";
+
+            htmlMessageStr += $"<h3><a href='{duesEmailEvent.duesUrl}'>Click here to view Dues Statement or PAY online</a></h3>";
+            //htmlMessageStr += $"*** Online payment is for properties with ONLY current dues outstanding - if there are outstanding past dues or fees on the account, contact Treasurer for online payment options *** <br>";
+
+            htmlMessageStr += $"Send payment checks to:<br>";
+            htmlMessageStr += $"<b>{duesEmailEvent.hoaNameShort}</b><br>";
+            htmlMessageStr += $"<b>{duesEmailEvent.hoaAddress1}</b><br>";
+            htmlMessageStr += $"<b>{duesEmailEvent.hoaAddress2}</b><br>";
+
+            if (!String.IsNullOrEmpty(duesEmailEvent.helpNotes)) {
+                htmlMessageStr += $"<br>{duesEmailEvent.helpNotes}<br>";
+            }
+
+            // Create the EmailClient
+            var emailClient = new EmailClient(acsEmailConnStr);
+
+            // Build the email content
+            var emailContent = new EmailContent(title)
+            {
+                Html = htmlMessageStr
+            };
+
+            var emailRecipients = new EmailRecipients(
+                to: new List<EmailAddress>
+                {
+                    new EmailAddress(duesEmailEvent.emailAddr)
+                }
+            );
+
+            // Create the message
+            var emailMessage = new EmailMessage(
+                senderAddress: acsEmailSenderAddress, // must be from a verified domain in ACS
+                content: emailContent,
+                recipients: emailRecipients
+            );
+
+            // Send the email and wait until the operation completes
+            EmailSendOperation operation = await emailClient.SendAsync(
+                WaitUntil.Completed,
+                emailMessage
+            );
+
+            // Check the result
+            EmailSendResult result = operation.Value;
+            if (result.Status != EmailSendStatus.Succeeded)
+            {
+                throw new Exception($"Dues email send failed - send status: {result.Status.ToString()}");
+            }
+
+            //----------------------------------------------------------------------------------------------------------------
+            // Update the status of the Communications record indicating that the email has been SENT
+            //----------------------------------------------------------------------------------------------------------------
+            // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
+            List<PatchOperation> patchOperations = new List<PatchOperation>
+            {
+                PatchOperation.Replace("/SentStatus", "Y"),
+                PatchOperation.Replace("/LastChangedBy", "SendMail"),
+                PatchOperation.Replace("/LastChangedTs", LastChangedTs)
+            };
+
+            // Convert the list to an array
+            PatchOperation[] patchArray = patchOperations.ToArray();
+
+            ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
+                duesEmailEvent.id,
+                new PartitionKey(duesEmailEvent.parcelId),
+                patchArray
+            );
+
+        returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {operation.Id}";
+        return returnMessage;
+    }
+
+    public async Task<string> SendPaymentEmail(DuesEmailEvent duesEmailEvent)
+    {
+            string returnMessage = "";
+
+            string containerId = "hoa_payments";
+            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
+            Database db = cosmosClient.GetDatabase(databaseId);
+            Container container = db.GetContainer(containerId);
+            DateTime currDateTime = DateTime.UtcNow;
+            string LastChangedTs = currDateTime.ToString("o");
+
+            // Create the EmailClient
+            var emailClient = new EmailClient(acsEmailConnStr);
+
+            // Build the email content
+            var emailContent = new EmailContent(duesEmailEvent.mailSubject)
+            {
+                Html = duesEmailEvent.htmlMessage
+            };
+
+            var emailRecipients = new EmailRecipients(
+                to: new List<EmailAddress>
+                {
+                    new EmailAddress(duesEmailEvent.emailAddr)
+                }
+            );
+
+            // Create the message
+            var emailMessage = new EmailMessage(
+                senderAddress: acsEmailSenderAddress, // must be from a verified domain in ACS
+                content: emailContent,
+                recipients: emailRecipients
+            );
+
+            // Send the email and wait until the operation completes
+            EmailSendOperation operation = await emailClient.SendAsync(
+                WaitUntil.Completed,
+                emailMessage
+            );
+
+            // Check the result
+            EmailSendResult result = operation.Value;
+            if (result.Status != EmailSendStatus.Succeeded)
+            {
+                log.LogError("---------- PAYMENT EMAIL SEND FAILED ------------");
+                log.LogError($">>> {duesEmailEvent.parcelId}, id: {duesEmailEvent.id}, email: {duesEmailEvent.emailAddr}");
+                log.LogError($"Email send status: {result.Status.ToString()}");
+                throw new Exception("Payment email send failed");
+            }
+
+            //----------------------------------------------------------------------------------------------------------------
+            // Update the status of the Payment record indicating that the email has been SENT
+            //----------------------------------------------------------------------------------------------------------------
+            // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
+            List<PatchOperation> patchOperations = new List<PatchOperation>
+            {
+                PatchOperation.Replace("/paidEmailSent", "Y"),
+                PatchOperation.Replace("/LastChangedTs", LastChangedTs)
+            };
+
+            // Convert the list to an array
+            PatchOperation[] patchArray = patchOperations.ToArray();
+
+            ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
+                duesEmailEvent.id,
+                new PartitionKey(duesEmailEvent.parcelId),
+                patchArray
+            );
+
+            returnMessage = $"Successfully sent email and updated payments rec, Parcel_ID: {duesEmailEvent.parcelId}, email Id: {operation.Id}";
+            return returnMessage;
     }
 
 
