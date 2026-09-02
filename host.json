@@ -1,6 +1,14 @@
 {
     "version": "2.0",
     "telemetryMode": "OpenTelemetry",
+    "extensions": {
+        "queues": {
+            "batchSize": 1,
+            "newBatchThreshold": 0,
+            "visibilityTimeout": "00:05:00",
+            "maxDequeueCount": 5
+        }
+    },
     "logging": {
         "logLevel": {
             "default": "Information",

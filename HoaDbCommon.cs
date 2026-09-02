@@ -71,6 +71,10 @@ public class HoaDbCommon
     private readonly string? acsEmailSenderAddress;
     private readonly CommonUtil util;
 
+    // Semaphore to ensure that only one email is sent at a time (to avoid exceeding the ACS hourly rate limit)
+    private static DateTime _lastEmailSent = DateTime.MinValue;
+    private static readonly SemaphoreSlim _emailSemaphore = new SemaphoreSlim(1, 1);
+
 
     public HoaDbCommon(ILogger logger, IConfiguration configuration)
     {
@@ -984,6 +988,23 @@ public class HoaDbCommon
                 recipients: emailRecipients
             );
 
+        string emailId = null;
+
+        await _emailSemaphore.WaitAsync();
+        try
+        {
+            DateTime now = DateTime.UtcNow;
+            TimeSpan elapsed = now - _lastEmailSent;
+            TimeSpan minimumInterval = TimeSpan.FromSeconds(40);
+            if (elapsed < minimumInterval)
+            {
+                TimeSpan delay = minimumInterval - elapsed;
+                log.LogInformation("Waiting {delaySeconds} seconds before sending next email",delay.TotalSeconds);
+                await Task.Delay(delay);
+            }
+
+
+            // Send the email here
             // Send the email and wait until the operation completes
             EmailSendOperation operation = await emailClient.SendAsync(
                 WaitUntil.Completed,
@@ -996,28 +1017,36 @@ public class HoaDbCommon
             {
                 throw new Exception($"Dues email send failed - send status: {result.Status.ToString()}");
             }
+            emailId = operation.Id;
 
-            //----------------------------------------------------------------------------------------------------------------
-            // Update the status of the Communications record indicating that the email has been SENT
-            //----------------------------------------------------------------------------------------------------------------
-            // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
-            List<PatchOperation> patchOperations = new List<PatchOperation>
-            {
-                PatchOperation.Replace("/SentStatus", "Y"),
-                PatchOperation.Replace("/LastChangedBy", "SendMail"),
-                PatchOperation.Replace("/LastChangedTs", LastChangedTs)
-            };
+            _lastEmailSent = DateTime.UtcNow;
+        }
+        finally
+        {
+            _emailSemaphore.Release();
+        }
 
-            // Convert the list to an array
-            PatchOperation[] patchArray = patchOperations.ToArray();
+        //----------------------------------------------------------------------------------------------------------------
+        // Update the status of the Communications record indicating that the email has been SENT
+        //----------------------------------------------------------------------------------------------------------------
+        // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
+        List<PatchOperation> patchOperations = new List<PatchOperation>
+        {
+            PatchOperation.Replace("/SentStatus", "Y"),
+            PatchOperation.Replace("/LastChangedBy", "SendMail"),
+            PatchOperation.Replace("/LastChangedTs", LastChangedTs)
+        };
 
-            ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
-                duesEmailEvent.id,
-                new PartitionKey(duesEmailEvent.parcelId),
-                patchArray
-            );
+        // Convert the list to an array
+        PatchOperation[] patchArray = patchOperations.ToArray();
 
-        returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {operation.Id}";
+        ItemResponse<dynamic> response = await container.PatchItemAsync<dynamic>(
+            duesEmailEvent.id,
+            new PartitionKey(duesEmailEvent.parcelId),
+            patchArray
+        );
+
+        returnMessage = $"Successfully sent email and updated comm rec, Parcel_ID = {duesEmailEvent.parcelId}, email Id: {emailId}";
         return returnMessage;
     }
 
