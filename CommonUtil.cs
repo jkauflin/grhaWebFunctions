@@ -54,8 +54,8 @@ namespace grhaWebFunctions
 {
     public class CommonUtil
     {
-        private readonly ILogger log;
-        public CommonUtil(ILogger logger)
+        private readonly ILogger<CommonUtil> log;
+        public CommonUtil(ILogger<CommonUtil> logger)
         {
             log = logger;
         }

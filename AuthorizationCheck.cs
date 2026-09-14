@@ -33,12 +33,12 @@ using Microsoft.IdentityModel.Tokens;
 
 public class AuthorizationCheck
 {
-    private readonly ILogger log;
+    private readonly ILogger<AuthorizationCheck> log;
     private readonly string? issuer;
     private readonly string? audience;
     private readonly ConfigurationManager<OpenIdConnectConfiguration>? openIdConfigManager;
 
-    public AuthorizationCheck(ILogger logger, IConfiguration? configuration = null)
+    public AuthorizationCheck(ILogger<AuthorizationCheck> logger, IConfiguration configuration)
     {
         log = logger;
 

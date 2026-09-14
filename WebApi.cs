@@ -43,6 +43,10 @@ Modification History
                 request (not SWA Easy Auth, but a real access token from Azure Entra ID).
 2026-08-26 JJK  Modified the SendDuesNoticeEmails to re-add a check for TEST
                 email sent for a particular Parcel Id
+2026-09-08 JJK  Added DI for a Cosmos DB client and DbCommon class.  Cosmos DB 
+                client is configured to use a managed identity in production, 
+                and a default credential in development (so connection string
+                is no longer needed)
 ================================================================================*/
 using System.Net;
 using Microsoft.Azure.Functions.Worker;
@@ -74,15 +78,21 @@ namespace grhaWebFunctions
         private readonly HoaDbCommon hoaDbCommon;
         private readonly PaypalServerSdkClient paypalClient;
 
-        public WebApi(ILogger<WebApi> logger, Microsoft.Extensions.Configuration.IConfiguration configuration, PaypalServerSdkClient inPaypalClient)
+        public WebApi(
+            ILogger<WebApi> logger,
+            Microsoft.Extensions.Configuration.IConfiguration configuration,
+            HoaDbCommon inHoaDbCommon,
+            PaypalServerSdkClient inPaypalClient,
+            AuthorizationCheck inAuthCheck,
+            CommonUtil inUtil)
         {
             log = logger;
             config = configuration;
-            authCheck = new AuthorizationCheck(log);
+            authCheck = inAuthCheck;
             userAdminRole = "hoadbadmin";   // add to config ???
-            util = new CommonUtil(log);
+            util = inUtil;
+            hoaDbCommon = inHoaDbCommon;
             paypalClient = inPaypalClient;
-            hoaDbCommon = new HoaDbCommon(log, config);
         }
 
 

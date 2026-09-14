@@ -10,6 +10,10 @@ Modification History
 2026-08-27 JJK  Update logging for better information using ilogger parameters
 2026-08-28 JJK  Update to use queue trigger instead of event grid trigger
                 (for requests queued in the email-send-queue storage queue)
+2026-09-08 JJK  Added DI for a Cosmos DB client and DbCommon class.  Cosmos DB 
+                client is configured to use a managed identity in production, 
+                and a default credential in development (so connection string
+                is no longer needed)
 ================================================================================*/
 
 using Azure.Messaging;
@@ -32,12 +36,16 @@ public class SendEmail
     private readonly CommonUtil util;
     private readonly HoaDbCommon hoaDbCommon;
 
-    public SendEmail(ILogger<SendEmail> logger, IConfiguration configuration)
+    public SendEmail(
+        ILogger<SendEmail> logger,
+        IConfiguration configuration,
+        HoaDbCommon inHoaDbCommon,
+        CommonUtil inUtil)
     {
         log = logger;
         config = configuration;
-        util = new CommonUtil(log);
-        hoaDbCommon = new HoaDbCommon(log, config);
+        util = inUtil;
+        hoaDbCommon = inHoaDbCommon;
     }
 
     [Function("SendEmailTrigger2")]

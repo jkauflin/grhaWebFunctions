@@ -40,12 +40,17 @@ Modification History
                 *** Turned on sending to actual email address (commented out test) ***
 2026-08-26 JJK  Modified the SendDuesNoticeEmailsDB to re-add a check for TEST
                 email sent for a particular Parcel Id
+20206-09-08 JJK Added DI for a Cosmos DB client and DbCommon class.  Cosmos DB 
+                client is configured to use a managed identity in production, 
+                and a default credential in development (so connection string
+                is no longer needed)
 ================================================================================*/
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Cosmos;
 using Azure;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Messaging.EventGrid;
@@ -60,11 +65,13 @@ namespace grhaWebFunctions
 {
 public class HoaDbCommon
 {
-    private readonly ILogger log;
+    private readonly ILogger<HoaDbCommon> log;
     private readonly IConfiguration config;
-    private readonly string? apiCosmosDbConnStr;
+    
+    private readonly CosmosClient _cosmosClient;
+    private readonly Database _database;
+    
     private readonly string? apiStorageConnStr;
-    private readonly string databaseId;
     private readonly string? grhaSendEmailEventTopicEndpoint;
     private readonly string? grhaSendEmailEventTopicKey;
     private readonly string? acsEmailConnStr;  // Your ACS Email connection string from the Azure portal
@@ -76,20 +83,25 @@ public class HoaDbCommon
     private static readonly SemaphoreSlim _emailSemaphore = new SemaphoreSlim(1, 1);
 
 
-    public HoaDbCommon(ILogger logger, IConfiguration configuration)
+    public HoaDbCommon(
+        ILogger<HoaDbCommon> logger,
+        IConfiguration configuration,
+        CosmosClient inCosmosClient,
+        CommonUtil inUtil)
     {
         log = logger;
         config = configuration;
-        apiCosmosDbConnStr = config["API_COSMOS_DB_CONN_STR"];
+
+        _cosmosClient = inCosmosClient;
+        _database = _cosmosClient.GetDatabase("hoadb");
+
         apiStorageConnStr = config["BLOB_STORAGE_CONN_STR"];
-        databaseId = "hoadb";
         grhaSendEmailEventTopicEndpoint = config["GRHA_SENDMAIL_EVENT_TOPIC_ENDPOINT"];
         grhaSendEmailEventTopicKey = config["GRHA_SENDMAIL_EVENT_TOPIC_KEY"];
         acsEmailConnStr = config["ACS_EMAIL_CONN_STR"];
         acsEmailSenderAddress = config["ACS_EMAIL_SENDER_ADDRESS"];
-        util = new CommonUtil(log);
+        util = inUtil;
     }
-
 
 
     // Common internal function to lookup configuration values
@@ -128,9 +140,7 @@ public class HoaDbCommon
         List<HoaProperty> hoaPropertyList = new List<HoaProperty>();
         HoaProperty hoaProperty = new HoaProperty();
 
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer("hoa_properties");
+        Container container = _database.GetContainer("hoa_properties");
 
         var feed = container.GetItemQueryIterator<hoa_properties>(queryDefinition);
         int cnt = 0;
@@ -159,7 +169,6 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "hoa_properties";
 
         List<HoaProperty2> hoaProperty2List = new List<HoaProperty2>();
@@ -167,9 +176,7 @@ public class HoaDbCommon
         HoaProperty2 hoaProperty2 = new HoaProperty2();
 
         //var mySetting = _configuration["MY_ENV_VARIABLE"];
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         // Get the existing document from Cosmos DB
         string sql = $"";
@@ -228,13 +235,11 @@ public class HoaDbCommon
         hoaRec.totalDuesCalcList = new List<TotalDuesCalcRec>();
         hoaRec.emailAddrList = new List<string>();
 
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container configContainer = db.GetContainer("hoa_config");
+        Container configContainer = _database.GetContainer("hoa_config");
 
         //----------------------------------- Property --------------------------------------------------------
         containerId = "hoa_properties";
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
         //sql = $"SELECT * FROM c WHERE c.id = '{parcelId}' ";
         var queryDefinition = new QueryDefinition(
             "SELECT * FROM c WHERE c.id = @parcelId ")
@@ -253,7 +258,7 @@ public class HoaDbCommon
 
         //----------------------------------- Owners ----------------------------------------------------------
         containerId = "hoa_owners";
-        Container ownersContainer = db.GetContainer(containerId);
+        Container ownersContainer = _database.GetContainer(containerId);
 
         if (!ownerId.Equals(""))
         {
@@ -297,7 +302,7 @@ public class HoaDbCommon
 
         //----------------------------------- Emails ----------------------------------------------------------
         containerId = "hoa_payments";
-        Container paymentsContainer = db.GetContainer(containerId);
+        Container paymentsContainer = _database.GetContainer(containerId);
         //--------------------------------------------------------------------------------------------------
         // Override email address to use if we get the last email used to make an electronic payment
         // 10/15/2022 JJK Modified to only look for payments within the last year (because of renter issue)
@@ -326,7 +331,7 @@ public class HoaDbCommon
 
         //----------------------------------- Assessments -----------------------------------------------------
         containerId = "hoa_assessments";
-        Container assessmentsContainer = db.GetContainer(containerId);
+        Container assessmentsContainer = _database.GetContainer(containerId);
         if (fy.Equals("") || fy.Equals("LATEST"))
         {
             sql = $"SELECT * FROM c WHERE c.Parcel_ID = '{parcelId}' ORDER BY c.FY DESC ";
@@ -404,7 +409,7 @@ public class HoaDbCommon
 
         //----------------------------------- Sales -----------------------------------------------------------
         containerId = "hoa_sales";
-        Container salesContainer = db.GetContainer(containerId);
+        Container salesContainer = _database.GetContainer(containerId);
         if (saleDate.Equals(""))
         {
             sql = $"SELECT * FROM c WHERE c.id = '{parcelId}' ORDER BY c.CreateTimestamp DESC ";
@@ -440,17 +445,13 @@ public class HoaDbCommon
         hoaRec2.paymentFee = 0.00m;
         hoaRec2.assessmentsList = new List<hoa_assessments>();
         hoaRec2.totalDuesCalcList = new List<TotalDuesCalcRec>();
-        string databaseId = "hoadb";
         string containerId = "hoa_properties";
         string sql;
-
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container configContainer = db.GetContainer("hoa_config");
+        Container configContainer = _database.GetContainer("hoa_config");
 
         //----------------------------------- Property --------------------------------------------------------
         containerId = "hoa_properties";
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
         //sql = $"SELECT * FROM c WHERE c.id = '{parcelId}' ";
 
         var queryDefinition = new QueryDefinition(
@@ -471,7 +472,7 @@ public class HoaDbCommon
 
         //----------------------------------- Assessments -----------------------------------------------------
         containerId = "hoa_assessments";
-        Container assessmentsContainer = db.GetContainer(containerId);
+        Container assessmentsContainer = _database.GetContainer(containerId);
         sql = $"SELECT * FROM c WHERE c.Parcel_ID = '{parcelId}' ORDER BY c.FY DESC ";
         var assessmentsFeed = assessmentsContainer.GetItemQueryIterator<hoa_assessments>(sql);
         cnt = 0;
@@ -540,13 +541,11 @@ public class HoaDbCommon
         bool testEmail = false)
     {
         List<HoaRec> outputList = new List<HoaRec>();
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container propertiesContainer = db.GetContainer("hoa_properties");
-        Container ownersContainer = db.GetContainer("hoa_owners");
-        Container assessmentsContainer = db.GetContainer("hoa_assessments");
-        //Container salesContainer = db.GetContainer("hoa_sales");
-        Container configContainer = db.GetContainer("hoa_config");
+        Container propertiesContainer = _database.GetContainer("hoa_properties");
+        Container ownersContainer = _database.GetContainer("hoa_owners");
+        Container assessmentsContainer = _database.GetContainer("hoa_assessments");
+        //Container salesContainer = _database.GetContainer("hoa_sales");
+        Container configContainer = _database.GetContainer("hoa_config");
 
         string sql = "";
         string? testEmailParcel = null;
@@ -706,10 +705,7 @@ public class HoaDbCommon
         //string sql = $"";
 
         List<hoa_communications> hoaCommunicationsList = new List<hoa_communications>();
-
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         QueryDefinition queryDefinition;
         if (parcelId.Equals("DuesNoticeEmails"))
@@ -762,9 +758,7 @@ public class HoaDbCommon
         var hoaRecList = await GetHoaRecListDB(duesOwed, skipEmail, currYearPaid, currYearUnpaid, testEmail);
         
         string containerId = "hoa_communications";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
         DateTime currDateTime = DateTime.Now;
 
         // Delete any existing hoa_communications records with Email = 1 and SentStatus = 'N'
@@ -852,10 +846,8 @@ public class HoaDbCommon
         int returnCnt = 0;
 
         string containerId = "hoa_communications";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
-        Container configContainer = db.GetContainer("hoa_config");
+        Container container = _database.GetContainer(containerId);
+        Container configContainer = _database.GetContainer("hoa_config");
         DateTime currDateTime = DateTime.Now;
         string LastChangedTs = currDateTime.ToString("o");
 
@@ -923,9 +915,7 @@ public class HoaDbCommon
             string returnMessage = "";
 
             string containerId = "hoa_communications";
-            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-            Database db = cosmosClient.GetDatabase(databaseId);
-            Container container = db.GetContainer(containerId);
+            Container container = _database.GetContainer(containerId);
             DateTime currDateTime = DateTime.Now;
             string LastChangedTs = currDateTime.ToString("o");
 
@@ -1055,9 +1045,7 @@ public class HoaDbCommon
             string returnMessage = "";
 
             string containerId = "hoa_payments";
-            CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-            Database db = cosmosClient.GetDatabase(databaseId);
-            Container container = db.GetContainer(containerId);
+            Container container = _database.GetContainer(containerId);
             DateTime currDateTime = DateTime.UtcNow;
             string LastChangedTs = currDateTime.ToString("o");
 
@@ -1132,11 +1120,8 @@ public class HoaDbCommon
         string containerId = "hoa_sales";
 
         List<hoa_sales> hoaSalesList = new List<hoa_sales>();
-
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        //Container configContainer = db.GetContainer("hoa_config");
-        Container container = db.GetContainer(containerId);
+        //Container configContainer = _database.GetContainer("hoa_config");
+        Container container = _database.GetContainer(containerId);
         //var queryDefinition = new QueryDefinition("SELECT * FROM c ORDER BY c.CreateTimestamp DESC OFFSET 0 LIMIT 200 ");
         // "SALEDT": "01-AUG-23"
         // Note: If you can change how SALEDT is stored (ISO yyyy-MM-dd), you can sort directly in the Cosmos query (ORDER BY c.SALEDT DESC).
@@ -1168,9 +1153,7 @@ public class HoaDbCommon
     public async Task<List<hoa_config>> GetConfigListDB()
     {
         List<hoa_config> configList = new List<hoa_config>();
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container configContainer = db.GetContainer("hoa_config");
+        Container configContainer = _database.GetContainer("hoa_config");
         var query = new QueryDefinition("SELECT * FROM c ORDER BY c.ConfigName");
         var feed = configContainer.GetItemQueryIterator<hoa_config>(query);
         while (feed.HasMoreResults)
@@ -1187,9 +1170,7 @@ public class HoaDbCommon
     // Update or insert a config value in hoa_config container
     public async Task<hoa_config> UpdateConfigDB(string userName, string configName, string configDesc, string configValue)
     {
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container configContainer = db.GetContainer("hoa_config");
+        Container configContainer = _database.GetContainer("hoa_config");
         hoa_config configRec = null;
         // Try to get existing config by ConfigName
         var query = new QueryDefinition("SELECT * FROM c WHERE c.ConfigName = @configName")
@@ -1236,10 +1217,7 @@ public class HoaDbCommon
         string containerId = "hoa_assessments";
 
         List<PaidDuesCount> duesCountList = new List<PaidDuesCount>();
-
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
         string sql = "SELECT * FROM c WHERE c.FY > 2006 ORDER BY c.FY ";
         var feed = container.GetItemQueryIterator<hoa_assessments>(sql);
 
@@ -1334,12 +1312,8 @@ public class HoaDbCommon
     {
         DateTime currDateTime = DateTime.Now;
         string LastChangedTs = currDateTime.ToString("o");
-
-        string databaseId = "hoadb";
         string containerId = "hoa_sales";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         // Patch operations for sales record
         List<PatchOperation> patchOperations = new List<PatchOperation>
@@ -1378,11 +1352,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "BoardOfTrustees";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         List<Trustee> trusteeList = new List<Trustee>();
 
@@ -1405,11 +1376,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "BoardOfTrustees";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         // Get the existing document from Cosmos DB
         int partitionKey = int.Parse(trusteeId); // Partition key of the item
@@ -1423,11 +1391,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "BoardOfTrustees";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         await container.ReplaceItemAsync(trustee, trustee.id, new PartitionKey(trustee.TrusteeId));
 
@@ -1528,11 +1493,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "MediaInfoDoc";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         if (mediaTypeId == 1)
         {
@@ -1745,11 +1707,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "hoa_properties";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         //foreach (var field in formFields)
         //{
@@ -1787,11 +1746,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "hoa_owners";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         string parcelId = formFields["Parcel_ID"].Trim();
         string ownerId = formFields["OwnerID"].Trim();
@@ -1847,7 +1803,7 @@ public class HoaDbCommon
 
         // Get the updated owner record for the return value (for display in UI)
         containerId = "hoa_owners";
-        Container ownersContainer = db.GetContainer(containerId);
+        Container ownersContainer = _database.GetContainer(containerId);
         var queryDefinition = new QueryDefinition(
             "SELECT * FROM c WHERE c.id = @ownerId AND c.Parcel_ID = @parcelId ")
             .WithParameter("@ownerId", ownerId)
@@ -1866,7 +1822,7 @@ public class HoaDbCommon
         if (ownerRec.CurrentOwner == 1)
         {
             containerId = "hoa_properties";
-            container = db.GetContainer(containerId);
+            container = _database.GetContainer(containerId);
 
             // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
             patchOperations = new List<PatchOperation>
@@ -1904,11 +1860,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "hoa_owners";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
         // Get the current owner record for this parcel
         var queryDefinition = new QueryDefinition(
             "SELECT * FROM c WHERE c.Parcel_ID = @parcelId AND c.CurrentOwner = 1 ")
@@ -1978,7 +1931,7 @@ public class HoaDbCommon
 
         // if current owner, update the OWNER fields in the hoa_properties record
         containerId = "hoa_properties";
-        container = db.GetContainer(containerId);
+        container = _database.GetContainer(containerId);
         // Initialize a list of PatchOperation (and default to setting the mandatory LastChanged fields)
         List<PatchOperation> patchOperations3 = new List<PatchOperation>
             {
@@ -2000,7 +1953,7 @@ public class HoaDbCommon
 
         // Update any ProcessedFlag not set to "Y" in the sales records for this parcel (assuming a new owner means the sales record is now processed)
         containerId = "hoa_sales";
-        container = db.GetContainer(containerId);
+        container = _database.GetContainer(containerId);
         var queryDefinition4 = new QueryDefinition(
             "SELECT * FROM c WHERE c.PARID = @parcelId AND c.ProcessedFlag != @processedFlag ")
             .WithParameter("@parcelId", parcelId)
@@ -2028,11 +1981,8 @@ public class HoaDbCommon
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
         //------------------------------------------------------------------------------------------------------------------
-        string databaseId = "hoadb";
         string containerId = "hoa_assessments";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         string parcelId = formFields["Parcel_ID"].Trim();
         string assessmentId = formFields["AssessmentId"].Trim();
@@ -2073,10 +2023,8 @@ public class HoaDbCommon
     // Bulk add assessments for all properties for a given FiscalYear and DuesAmt
     public async Task<int> AddAssessmentsBulk(string userName, int fiscalYear, decimal duesAmt)
     {
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container propContainer = db.GetContainer("hoa_properties");
-        Container assessContainer = db.GetContainer("hoa_assessments");
+        Container propContainer = _database.GetContainer("hoa_properties");
+        Container assessContainer = _database.GetContainer("hoa_assessments");
 
         // Get all properties
         List<hoa_properties> propList = new List<hoa_properties>();
@@ -2185,11 +2133,8 @@ public class HoaDbCommon
         {
             return "File Error - Empty file.";
         }
-
-        var cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        var db = cosmosClient.GetDatabase(databaseId);
-        var salesContainer = db.GetContainer("hoa_sales");
-        var propertyContainer = db.GetContainer("hoa_properties");
+        var salesContainer = _database.GetContainer("hoa_sales");
+        var propertyContainer = _database.GetContainer("hoa_properties");
 
         DateTime currDateTime = DateTime.Now;
         string LastChangedTs = currDateTime.ToString("o");
@@ -2297,11 +2242,9 @@ public class HoaDbCommon
     public async Task RecordPayment(string parcelId, string fiscalYear, string transactionId,
                                     decimal totalAmount, decimal paymentAmt, decimal paymentFee, string paymentDate, string payerEmail, string payerName)
     {
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container assessmentsContainer = db.GetContainer("hoa_assessments");
-        Container paymentsContainer = db.GetContainer("hoa_payments");
-        Container configContainer = db.GetContainer("hoa_config");
+        Container assessmentsContainer = _database.GetContainer("hoa_assessments");
+        Container paymentsContainer = _database.GetContainer("hoa_payments");
+        Container configContainer = _database.GetContainer("hoa_config");
         DateTime currDateTime = DateTime.UtcNow;
         string LastChangedTs = currDateTime.ToString("o");
         var eventGridPublisherClient = new EventGridPublisherClient(
@@ -2452,11 +2395,8 @@ public class HoaDbCommon
     // Query Cosmos DB for MediaInfo records based on paramData
     public async Task<List<MediaInfo>> GetMediaInfoDB(Dictionary<string, object> paramData)
     {
-        string databaseId = "hoadb";
         string containerId = "MediaInfoDoc";
-        CosmosClient cosmosClient = new CosmosClient(apiCosmosDbConnStr);
-        Database db = cosmosClient.GetDatabase(databaseId);
-        Container container = db.GetContainer(containerId);
+        Container container = _database.GetContainer(containerId);
 
         //log.LogWarning("-------------------------------------------------------------------------------------------------------------------------------------------");
         //log.LogWarning($">>> GetMediaInfoDB paramData: {Newtonsoft.Json.JsonConvert.SerializeObject(paramData)}");

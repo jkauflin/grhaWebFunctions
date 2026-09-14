@@ -28,6 +28,10 @@ Modification History
                 The client application must request an access token for the 
                 API Function and include it in the Authorization header of the 
                 request (not SWA Easy Auth, but a real access token from Azure Entra ID).
+2026-09-08 JJK  Added DI for a Cosmos DB client and DbCommon class.  Cosmos DB 
+                client is configured to use a managed identity in production, 
+                and a default credential in development (so connection string
+                is no longer needed)
 ================================================================================*/
 
 using System.Net;
@@ -55,14 +59,19 @@ namespace grhaWebFunctions
         private readonly CommonUtil util;
         private readonly HoaDbCommon hoaDbCommon;
 
-        public AdminApi(ILogger<AdminApi> logger, IConfiguration configuration)
+        public AdminApi(
+            ILogger<AdminApi> logger,
+            IConfiguration configuration,
+            HoaDbCommon inHoaDbCommon,
+            AuthorizationCheck inAuthCheck,
+            CommonUtil inUtil)
         {
             log = logger;
             config = configuration;
-            authCheck = new AuthorizationCheck(log);
+            authCheck = inAuthCheck;
             userAdminRole = "grhaadmin";   // add to config ???
-            util = new CommonUtil(log);
-            hoaDbCommon = new HoaDbCommon(log,config);
+            util = inUtil;
+            hoaDbCommon = inHoaDbCommon;
         }
 
         [Function("GetTrustee")]

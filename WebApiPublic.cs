@@ -16,6 +16,10 @@ Modification History
 2026-07-28 JJK  Modified to use Newtonsoft.Json.Serialization with camelCase 
                 for JSON serialization to match the previous PHP API output
                 (and have the first letter of the JSON property names be lower case)
+2026-09-08 JJK  Added DI for a Cosmos DB client and DbCommon class.  Cosmos DB 
+                client is configured to use a managed identity in production, 
+                and a default credential in development (so connection string
+                is no longer needed)
 ================================================================================*/
 using System.Net;
 using Microsoft.Azure.Functions.Worker;
@@ -37,12 +41,16 @@ namespace grhaWebFunctions
         private readonly CommonUtil util;
         private readonly HoaDbCommon hoaDbCommon;
 
-        public WebApiPublic(ILogger<WebApi> logger, IConfiguration configuration)
+        public WebApiPublic(
+            ILogger<WebApi> logger,
+            IConfiguration configuration,
+            HoaDbCommon inHoaDbCommon,
+            CommonUtil inUtil)
         {
             log = logger;
             config = configuration;
-            util = new CommonUtil(log);
-            hoaDbCommon = new HoaDbCommon(log, config);
+            util = inUtil;
+            hoaDbCommon = inHoaDbCommon;
         }
 
         // Public access for website Dues page
