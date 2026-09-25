@@ -204,7 +204,7 @@ namespace grhaWebFunctions
         {
             List<HoaRec> hoaRecList = new List<HoaRec>();
             bool duesOwed = false;
-            bool skipEmail = false;
+            bool skipManaged = false;
             //bool salesWelcome = false;
             bool currYearPaid = false;
             bool currYearUnpaid = false;
@@ -276,12 +276,13 @@ namespace grhaWebFunctions
                 {
                     duesOwed = true;
                 }
-                if (reportName.StartsWith("Duesletter1"))
-                {
-                    skipEmail = true;
+                // 2026-09-25 JJK - Set skipManaged to true for all Duesletter lists - logic for what to skip will be 
+                // applied in the function
+                if (reportName.StartsWith("Duesletter")) {
+                    skipManaged = true;
                 }
 
-                hoaRecList = await hoaDbCommon.GetHoaRecListDB(duesOwed, skipEmail, currYearPaid, currYearUnpaid, testEmail);
+                hoaRecList = await hoaDbCommon.GetHoaRecListDB(duesOwed, skipManaged, currYearPaid, currYearUnpaid, testEmail);
             }
             catch (Exception ex)
             {

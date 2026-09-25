@@ -535,7 +535,7 @@ public class HoaDbCommon
     //==============================================================================================================
     public async Task<List<HoaRec>> GetHoaRecListDB(
         bool duesOwed = false,
-        bool skipEmail = false,
+        bool skipManaged = false,
         bool currYearPaid = false,
         bool currYearUnpaid = false,
         bool testEmail = false)
@@ -651,11 +651,19 @@ public class HoaDbCommon
             }
             /* 2025-09-11 JJK - Board decided to send Due Notice postal letters to ALL properties, even if they have an email use preference
                                 (because of old or bad emails and the need to make sure everyone gets a notice)
-            if (skipEmail && (hoaRec.property.UseEmail == 1))
+            if (skipManaged && (hoaRec.property.UseEmail == 1))
             {
                 continue;
             }
             */
+
+            // 2026-09-24 JJK - Managed indicates a non-standard dues collection process, so skip sending emails to those properties
+            // This is for properties on a payment plan or with a collection agency or lawyer process
+            // Communication and payment is outside of HOADB
+            if (skipManaged && (hoaRec.property.Managed == 1))
+            {
+                continue;
+            }
 
             outputList.Add(hoaRec);
         }
@@ -748,14 +756,14 @@ public class HoaDbCommon
     public async Task<int> CreateDuesEmailsListDB(string userName)
     {
         bool duesOwed = true;
-        bool skipEmail = false;
+        bool skipManaged = true;  // Skip properties that are managed (non-standard dues collection process)
         bool currYearPaid = false;
         bool currYearUnpaid = false;
         bool testEmail = false;
         int returnCnt = 0;
 
         // Get a list of the parcels that have dues owed
-        var hoaRecList = await GetHoaRecListDB(duesOwed, skipEmail, currYearPaid, currYearUnpaid, testEmail);
+        var hoaRecList = await GetHoaRecListDB(duesOwed, skipManaged, currYearPaid, currYearUnpaid, testEmail);
         
         string containerId = "hoa_communications";
         Container container = _database.GetContainer(containerId);
@@ -1724,6 +1732,7 @@ public class HoaDbCommon
             };
 
         //AddPatchField(patchOperations, formFields, "UseEmail", "Bool");
+        AddPatchField(patchOperations, formFields, "Managed", "Bool");
         AddPatchField(patchOperations, formFields, "Comments");
 
         // Convert the list to an array
