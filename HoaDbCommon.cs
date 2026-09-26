@@ -44,6 +44,9 @@ Modification History
                 client is configured to use a managed identity in production, 
                 and a default credential in development (so connection string
                 is no longer needed)
+2026-09-25 JJK  Added Search for Managed properties to the GetHoaRecListDB function, 
+                and modified the logic for showing the online payment button to 
+                NOT show it for managed properties
 ================================================================================*/
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
@@ -133,6 +136,13 @@ public class HoaDbCommon
             + "OR CONTAINS(UPPER(CONCAT(c.Owner_Name1,' ',c.Owner_Name2,' ',c.Mailing_Name)),@searchStr) "
             + "ORDER BY c.id")
         .WithParameter("@searchStr", searchStr);
+
+        if (searchStr.Equals("MANAGED"))
+        {
+            queryDefinition = new QueryDefinition("SELECT * FROM c WHERE c.Managed = 1 "
+                        + "ORDER BY c.id")
+                    .WithParameter("@searchStr", searchStr);
+        }
 
         //------------------------------------------------------------------------------------------------------------------
         // Query the NoSQL container to get values
@@ -402,9 +412,18 @@ public class HoaDbCommon
             }
             */
 
-            // 2026-03-17 JJK - Calculate the processing fee for electronic payments based on the total amount due
-            hoaRec.paymentFee = util.CalcProcessingFee(hoaRec.totalDue);
-            hoaRec.paymentInstructions = await getConfigVal(configContainer, "OnlinePaymentInstructions");
+            // 2026-09-25 JJK - Added logic to only show the online payment button if the property is not managed 
+            // (managed properties have a non-standard dues collection process)
+            if (hoaRec.property.Managed == 1)
+            {
+                hoaRec.paymentInstructions = await getConfigVal(configContainer, "OfflinePaymentInstructions");
+            } 
+            else
+            {
+                // 2026-03-17 JJK - Calculate the processing fee for electronic payments based on the total amount due
+                hoaRec.paymentFee = util.CalcProcessingFee(hoaRec.totalDue);
+                hoaRec.paymentInstructions = await getConfigVal(configContainer, "OnlinePaymentInstructions");
+            }
         }
 
         //----------------------------------- Sales -----------------------------------------------------------
@@ -509,7 +528,6 @@ public class HoaDbCommon
         // Construct the online payment button and instructions according to what is owed
         //---------------------------------------------------------------------------------------------------
         // Only display payment button if something is owed
-        // For now, only set payment button if just the current year dues are owed (no other years or open liens)
         if (hoaRec2.totalDue > 0.0m)
         {
             /* Old logic of only showing the online payment button if just the current year dues are owed (no other years or open liens) and a flat fee
@@ -520,10 +538,19 @@ public class HoaDbCommon
                 hoaRec2.paymentInstructions = await getConfigVal(configContainer, "OnlinePaymentInstructions");
             }
             */
-            
-            // 2026-03-17 JJK - Calculate the processing fee for electronic payments based on the total amount due
-            hoaRec2.paymentFee = util.CalcProcessingFee(hoaRec2.totalDue);
-            hoaRec2.paymentInstructions = await getConfigVal(configContainer, "OnlinePaymentInstructions");
+
+            // 2026-09-25 JJK - Added logic to only show the online payment button if the property is not managed 
+            // (managed properties have a non-standard dues collection process)
+            if (hoaRec2.property.Managed == 1)
+            {
+                hoaRec2.paymentInstructions = await getConfigVal(configContainer, "OfflinePaymentInstructions");
+            } 
+            else
+            {
+                // 2026-03-17 JJK - Calculate the processing fee for electronic payments based on the total amount due
+                hoaRec2.paymentFee = util.CalcProcessingFee(hoaRec2.totalDue);
+                hoaRec2.paymentInstructions = await getConfigVal(configContainer, "OnlinePaymentInstructions");
+            }
         }
 
         return hoaRec2;
