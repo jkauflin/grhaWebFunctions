@@ -10,6 +10,8 @@ Modification History
                 client is configured to use a managed identity in production, 
                 and a default credential in development (so connection string
                 is no longer needed)
+2026-10-20 JJK  Added DI for a BlobServiceClient, configured to use a managed 
+                identity in production, and a default credential in development
 ================================================================================*/
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
@@ -21,6 +23,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Azure.Cosmos;
 using Azure.Core;
 using Azure.Identity;
+using Azure.Storage.Blobs;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using OpenTelemetry;
 using PaypalServerSdk.Standard;
@@ -66,6 +69,33 @@ builder.Services.AddSingleton<CosmosClient>(serviceProvider =>
 
     return new CosmosClient(
         endpoint,
+        credential);
+});
+
+// DI for Storage Blob Client
+builder.Services.AddSingleton<BlobServiceClient>(serviceProvider =>
+{
+    var configuration = serviceProvider.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+    var storageAccountName =
+        builder.Configuration["API_STORAGE_ACCOUNT_NAME"]
+        ?? throw new InvalidOperationException(
+            "API_STORAGE_ACCOUNT_NAME is not configured.");
+
+    TokenCredential credential;
+
+    if (builder.Environment.IsDevelopment())
+    {
+        credential = new DefaultAzureCredential();
+    }
+    else
+    {
+        credential = new ManagedIdentityCredential(   
+            ManagedIdentityId.SystemAssigned);
+    }
+
+    return new BlobServiceClient(
+        new Uri(
+            $"https://{storageAccountName}.blob.core.windows.net"),
         credential);
 });
 

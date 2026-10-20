@@ -47,6 +47,9 @@ Modification History
 2026-09-25 JJK  Added Search for Managed properties to the GetHoaRecListDB function, 
                 and modified the logic for showing the online payment button to 
                 NOT show it for managed properties
+2026-10-20 JJK  Modified the blob service client to use the BlobServiceClient 
+                injected via DI, instead of creating a new one with the 
+                connection string
 ================================================================================*/
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
@@ -70,11 +73,10 @@ public class HoaDbCommon
 {
     private readonly ILogger<HoaDbCommon> log;
     private readonly IConfiguration config;
-    
+    private readonly BlobServiceClient _blobServiceClient;
     private readonly CosmosClient _cosmosClient;
     private readonly Database _database;
     
-    private readonly string? apiStorageConnStr;
     private readonly string? grhaSendEmailEventTopicEndpoint;
     private readonly string? grhaSendEmailEventTopicKey;
     private readonly string? acsEmailConnStr;  // Your ACS Email connection string from the Azure portal
@@ -89,16 +91,15 @@ public class HoaDbCommon
     public HoaDbCommon(
         ILogger<HoaDbCommon> logger,
         IConfiguration configuration,
+        BlobServiceClient blobServiceClient,
         CosmosClient inCosmosClient,
         CommonUtil inUtil)
     {
         log = logger;
         config = configuration;
-
+        _blobServiceClient = blobServiceClient;
         _cosmosClient = inCosmosClient;
         _database = _cosmosClient.GetDatabase("hoadb");
-
-        apiStorageConnStr = config["BLOB_STORAGE_CONN_STR"];
         grhaSendEmailEventTopicEndpoint = config["GRHA_SENDMAIL_EVENT_TOPIC_ENDPOINT"];
         grhaSendEmailEventTopicKey = config["GRHA_SENDMAIL_EVENT_TOPIC_KEY"];
         acsEmailConnStr = config["ACS_EMAIL_CONN_STR"];
@@ -1436,7 +1437,8 @@ public class HoaDbCommon
 
     private async Task UploadFileToStorageAsync(string containerName, string fileName, byte[] fileData, bool storageOverwrite = true, bool fileIsImage = false, int desiredImgSize = 0)
     {
-        var blobContainerClient = new BlobContainerClient(apiStorageConnStr, containerName);
+        var blobContainerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+
         // Create a client with the URI and the name
         var blobClient = blobContainerClient.GetBlobClient(fileName);
         // Makes a call to Azure to see if this URI+name exists
